@@ -1,36 +1,34 @@
-activerecord4-redshift-adapter
+activerecord5-redshift-adapter
 ==============================
 
-Amazon Redshift adapter for ActiveRecord 4 (Rails 4).
-I copied PostgreSQL driver from ActiveRecord 4.0.0 and modified for Redshift.
-"Barely works" patch was borrowed from fiksu/activerecord-redshift-adapter.
+Amazon Redshift adapter for ActiveRecord 5 (Rails 5).
+I cloned the project from aamine/activerecord4-redshift-adapter.
 
-I know Redshift driver already exists (https://github.com/fiksu/activerecord-redshift-adapter),
-but it currently supports only ActiveRecord 3.  Also, AR4 code is magnifically
-different from AR3 code because of file separation, patching does not work well.
-I want to use Rails 4 with Redshift NOW, so I wrote this driver.
-If anybody write better Redshift driver which works with ActiveRecord 4,
-I abandon this driver.
+The Redshift driver for ActiveRecord4 already exists at:
+https://github.com/aamine/activerecord4-redshift-adapter, and the one for
+ActiveRecord3 exists at https://github.com/fiksu/activerecord-redshift-adapter.
+
+There are some differences for AR5, and this driver tries to stay compatible
+with those.
+
+If anybody writes a better Redshift driver which works with ActiveRecord 5,
+and maintains it, we would happily switch to that.
 
 Usage
 -------------------
 
-For Rails 4.2, write following in Gemfile:
+For Rails 5, write following in Gemfile:
 ```
-gem 'activerecord4-redshift-adapter', '~> 0.2.0'
-```
-For Rails 4.1:
-```
-gem 'activerecord4-redshift-adapter', '~> 0.1.1'
-```
+gem 'activerecord5-redshift-adapter'
+
 
 In database.yml
 ```
 development:
   adapter: redshift
-  host: your_cluster_name.hashhash.ap-northeast-1.redshift.amazonaws.com
+  host: your_cluster_name.at.redshift.amazonaws.com
   port: 5439
-  database: dev
+  database: your_db
   username: your_user
   password: your_password
   encoding: utf8
