@@ -140,7 +140,8 @@ module ActiveRecord
 
       class StatementPool < ConnectionAdapters::StatementPool
         def initialize(connection, max)
-          super
+          super(max)
+          @connection = connection
           @counter = 0
           @cache   = Hash.new { |h,pid| h[pid] = {} }
         end
