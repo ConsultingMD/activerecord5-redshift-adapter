@@ -14,7 +14,7 @@ require 'active_record/connection_adapters/redshift/database_statements'
 require 'arel/visitors/bind_visitor'
 
 # Make sure we're using pg high enough for PGResult#values
-gem 'pg', '> 0.15'
+gem 'pg', '> 0.18'
 require 'pg'
 
 require 'ipaddr'
@@ -387,11 +387,11 @@ module ActiveRecord
         end
 
         def initialize_type_map(m) # :nodoc:
-          register_class_with_limit m, 'int2', OID::Integer
-          register_class_with_limit m, 'int4', OID::Integer
-          register_class_with_limit m, 'int8', OID::Integer
+          register_class_with_limit m, 'int2', Type::Integer
+          register_class_with_limit m, 'int4', Type::Integer
+          register_class_with_limit m, 'int8', Type::Integer
           m.alias_type 'oid', 'int2'
-          m.register_type 'float4', OID::Float.new
+          m.register_type 'float4', Type::Float.new
           m.alias_type 'float8', 'float4'
           m.register_type 'text', Type::Text.new
           register_class_with_limit m, 'varchar', Type::String
@@ -400,8 +400,8 @@ module ActiveRecord
           m.alias_type 'bpchar', 'varchar'
           m.register_type 'bool', Type::Boolean.new
           m.alias_type 'timestamptz', 'timestamp'
-          m.register_type 'date', OID::Date.new
-          m.register_type 'time', OID::Time.new
+          m.register_type 'date', Type::Date.new
+          m.register_type 'time', Type::Time.new
 
           m.register_type 'timestamp' do |_, _, sql_type|
             precision = extract_precision(sql_type)
