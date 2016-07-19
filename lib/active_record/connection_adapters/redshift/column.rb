@@ -1,9 +1,10 @@
 module ActiveRecord
   module ConnectionAdapters
     class RedshiftColumn < Column #:nodoc:
-      def initialize(name, default, cast_type, sql_type = nil, null = true, default_function = nil)
-        super name, default, cast_type, sql_type, null
-        @default_function = default_function
+      delegate :oid, :fmod, to: :sql_type_metadata
+
+      def initialize(name, default, sql_type_metadata, null = true, table_name= nil, default_function = nil)
+        super name, default, sql_type_metadata, null, table_name, default_function, nil
       end
     end
   end

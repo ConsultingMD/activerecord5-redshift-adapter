@@ -8,6 +8,7 @@ require 'active_record/connection_adapters/redshift/quoting'
 require 'active_record/connection_adapters/redshift/referential_integrity'
 require 'active_record/connection_adapters/redshift/schema_definitions'
 require 'active_record/connection_adapters/redshift/schema_statements'
+require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
 
 require 'arel/visitors/bind_visitor'
@@ -442,7 +443,7 @@ module ActiveRecord
         end
 
         # Extracts the value from a PostgreSQL column default definition.
-        def extract_value_from_default(oid, default) # :nodoc:
+        def extract_value_from_default(default) # :nodoc:
           case default
             # Quoted types
             when /\A[\(B]?'(.*)'::/m
