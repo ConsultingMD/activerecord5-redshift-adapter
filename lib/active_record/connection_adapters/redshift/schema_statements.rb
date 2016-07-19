@@ -72,7 +72,7 @@ module ActiveRecord
 
         # Returns the list of all tables in the schema search path or a specified schema.
         def tables(name = nil)
-          query(<<-SQL, 'SCHEMA').map { |row| row[0] }
+          select_values(<<-SQL, 'SCHEMA')
             SELECT tablename
             FROM pg_tables
             WHERE schemaname = ANY (current_schemas(false))
@@ -86,7 +86,7 @@ module ActiveRecord
           name = Utils.extract_schema_qualified_name(name.to_s)
           return false unless name.identifier
 
-          exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
+          select_values(<<-SQL, 'SCHEMA').to_i > 0
               SELECT COUNT(*)
               FROM pg_class c
               LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -126,7 +126,7 @@ module ActiveRecord
 
         # Returns true if schema exists.
         def schema_exists?(name)
-          exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
+          select_values(<<-SQL, 'SCHEMA').to_i > 0
             SELECT COUNT(*)
             FROM pg_namespace
             WHERE nspname = '#{name}'
@@ -159,17 +159,17 @@ module ActiveRecord
 
         # Returns the current database name.
         def current_database
-          query('select current_database()', 'SCHEMA')[0][0]
+          select_values('select current_database()', 'SCHEMA')
         end
 
         # Returns the current schema name.
         def current_schema
-          query('SELECT current_schema', 'SCHEMA')[0][0]
+          select_values('SELECT current_schema', 'SCHEMA')
         end
 
         # Returns the current database encoding format.
         def encoding
-          query(<<-end_sql, 'SCHEMA')[0][0]
+          select_values(<<-end_sql, 'SCHEMA')
             SELECT pg_encoding_to_char(pg_database.encoding) FROM pg_database
             WHERE pg_database.datname LIKE '#{current_database}'
           end_sql
@@ -183,7 +183,7 @@ module ActiveRecord
 
         # Returns an array of schema names.
         def schema_names
-          query(<<-SQL, 'SCHEMA').flatten
+          select_values(<<-SQL, 'SCHEMA')
             SELECT nspname
               FROM pg_namespace
              WHERE nspname !~ '^pg_.*'
@@ -216,7 +216,7 @@ module ActiveRecord
 
         # Returns the active schema search path.
         def schema_search_path
-          @schema_search_path ||= query('SHOW search_path', 'SCHEMA')[0][0]
+          @schema_search_path ||= select_values('SHOW search_path', 'SCHEMA')
         end
 
         # Returns the sequence name for a table's primary key or some other specified key.
@@ -229,10 +229,7 @@ module ActiveRecord
         end
 
         def serial_sequence(table, column)
-          result = exec_query(<<-eosql, 'SCHEMA')
-            SELECT pg_get_serial_sequence('#{table}', '#{column}')
-          eosql
-          result.rows.first.first
+          select_value("SELECT pg_get_serial_sequence('#{table}', '#{column}')", 'SCHEMA')
         end
 
         def set_pk_sequence!(table, value) #:nodoc:
@@ -247,7 +244,7 @@ module ActiveRecord
 
         # Returns just a table's primary key
         def primary_key(table)
-          pks = exec_query(<<-end_sql, 'SCHEMA').rows
+          pks = query(<<-end_sql, 'SCHEMA')
             SELECT DISTINCT attr.attname
             FROM pg_attribute attr
             INNER JOIN pg_depend dep ON attr.attrelid = dep.refobjid AND attr.attnum = dep.refobjsubid
