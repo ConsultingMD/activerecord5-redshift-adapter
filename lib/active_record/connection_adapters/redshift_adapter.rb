@@ -201,7 +201,7 @@ module ActiveRecord
 
         connect
         @statements = StatementPool.new @connection,
-                                        self.class.type_cast_config_to_integer(config.fetch(:statement_limit) { 1000 })
+                                        self.class.type_cast_config_to_integer(config[:statement_limit])
 
         @type_map = Type::HashLookupTypeMap.new
         initialize_type_map(type_map)
