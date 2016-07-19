@@ -6,7 +6,7 @@ Gem::Specification.new do |s|
   s.description = 'Amazon Redshift _makeshift_ adapter for ActiveRecord 5.'
   s.license = 'MIT'
 
-  s.author = ['Nancy Foen']
+  s.author = ['Nancy Foen', 'Minero Aoki']
   s.email = 'nancy.foen@grandrounds.com'
   s.homepage = 'https://github.com/ConsultingMD/activerecord5-redshift-adapter'
 
@@ -14,6 +14,6 @@ Gem::Specification.new do |s|
   s.require_path = 'lib'
 
   s.required_ruby_version = '>= 2.2.2'
-  s.add_dependency 'pg'
+  s.add_dependency 'pg', ['>= 0.18']
   s.add_dependency 'activerecord', ['~> 5.0.0']
 end

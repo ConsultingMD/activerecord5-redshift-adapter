@@ -12,8 +12,6 @@ require 'active_record/connection_adapters/redshift/schema_statements'
 require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
 
-# Make sure we're using pg high enough for PGResult#values
-gem 'pg', '> 0.18'
 require 'pg'
 
 require 'ipaddr'
