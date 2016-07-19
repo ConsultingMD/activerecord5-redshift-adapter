@@ -5,12 +5,8 @@ module ActiveRecord
         private
 
         def visit_ColumnDefinition(o)
-          sql = super
-          if o.primary_key? && o.type != :primary_key
-            sql << " PRIMARY KEY "
-            add_column_options!(sql, column_options(o))
-          end
-          sql
+          o.sql_type = type_to_sql(o.type, o.limit, o.precision, o.scale)
+          super
         end
 
         def add_column_options!(sql, options)
@@ -242,7 +238,7 @@ module ActiveRecord
         end
 
         # Returns just a table's primary key
-        def primary_key(table)
+        def primary_keys(table)
           pks = query(<<-end_sql, 'SCHEMA')
             SELECT DISTINCT attr.attname
             FROM pg_attribute attr
@@ -251,8 +247,7 @@ module ActiveRecord
             WHERE cons.contype = 'p'
               AND dep.refobjid = '#{quote_table_name(table)}'::regclass
           end_sql
-          return nil unless pks.count == 1
-          pks[0][0]
+          pks.present? ? pks[0] : pks
         end
 
         # Renames a table.

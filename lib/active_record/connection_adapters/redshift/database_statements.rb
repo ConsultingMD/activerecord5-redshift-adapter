@@ -74,7 +74,7 @@ module ActiveRecord
 
         # Executes an INSERT query and returns the new record's ID
         def insert_sql(sql, name = nil, pk = nil, id_value = nil, sequence_name = nil)
-          unless pk
+          if pk.nil?
             # Extract the table from the insert sql. Yuck.
             table_ref = extract_table_ref_from_insert_sql(sql)
             pk = primary_key(table_ref) if table_ref

@@ -2,21 +2,6 @@ module ActiveRecord
   module ConnectionAdapters
     module Redshift
       module ColumnMethods
-        def json(name, options = {})
-          column(name, :json, options)
-        end
-
-        def jsonb(name, options = {})
-          column(name, :jsonb, options)
-        end
-      end
-
-      class ColumnDefinition < ActiveRecord::ConnectionAdapters::ColumnDefinition
-      end
-
-      class TableDefinition < ActiveRecord::ConnectionAdapters::TableDefinition
-        include ColumnMethods
-
         # Defines the primary key field.
         # Use of the native PostgreSQL UUID type is supported, and can be used
         # by defining your tables as such:
@@ -51,6 +36,21 @@ module ActiveRecord
           options[:primary_key] = true
           column name, type, options
         end
+
+        def json(name, options = {})
+          column(name, :json, options)
+        end
+
+        def jsonb(name, options = {})
+          column(name, :jsonb, options)
+        end
+      end
+
+      class ColumnDefinition < ActiveRecord::ConnectionAdapters::ColumnDefinition
+      end
+
+      class TableDefinition < ActiveRecord::ConnectionAdapters::TableDefinition
+        include ColumnMethods
 
         private
 
