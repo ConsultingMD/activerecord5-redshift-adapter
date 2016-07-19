@@ -54,9 +54,9 @@ module ActiveRecord
 
         private
 
-          def create_column_definition(name, type)
-            Redshift::ColumnDefinition.new name, type
-          end
+        def create_column_definition(name, type)
+          Redshift::ColumnDefinition.new name, type
+        end
       end
 
       class Table < ActiveRecord::ConnectionAdapters::Table

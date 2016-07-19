@@ -12,8 +12,6 @@ require 'active_record/connection_adapters/redshift/schema_statements'
 require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
 
-require 'arel/visitors/bind_visitor'
-
 # Make sure we're using pg high enough for PGResult#values
 gem 'pg', '> 0.18'
 require 'pg'
@@ -188,12 +186,12 @@ module ActiveRecord
 
       # Initializes and connects a PostgreSQL adapter.
       def initialize(connection, logger, connection_parameters, config)
-        super(connection, logger)
+        super(connection, logger, config)
 
         @visitor = Arel::Visitors::PostgreSQL.new self
         @prepared_statements = false
 
-        @connection_parameters, @config = connection_parameters, config
+        @connection_parameters = connection_parameters
 
         # @local_tz is initialized as nil to avoid warnings when connect tries to use it
         @local_tz = nil
@@ -595,15 +593,6 @@ module ActiveRecord
               execute("SET SESSION #{k} TO #{quote(v)}", 'SCHEMA')
             end
           end
-        end
-
-        # Returns the current ID of a table's sequence.
-        def last_insert_id(sequence_name) #:nodoc:
-          Integer(last_insert_id_value(sequence_name))
-        end
-
-        def last_insert_id_value(sequence_name)
-          last_insert_id_result(sequence_name).rows.first.first
         end
 
         def last_insert_id_result(sequence_name) #:nodoc:

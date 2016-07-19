@@ -17,14 +17,6 @@ module ActiveRecord
             super
           end
         end
-
-        def type_for_column(column)
-          if column.array
-            @conn.lookup_cast_type("#{column.sql_type}[]")
-          else
-            super
-          end
-        end
       end
 
       module SchemaStatements
@@ -35,10 +27,10 @@ module ActiveRecord
           create_database(name, options)
         end
 
-        # Create a new PostgreSQL database. Options include <tt>:owner</tt>, <tt>:template</tt>,
+        # Create a new Redshift database. Options include <tt>:owner</tt>, <tt>:template</tt>,
         # <tt>:encoding</tt> (defaults to utf8), <tt>:collation</tt>, <tt>:ctype</tt>,
         # <tt>:tablespace</tt>, and <tt>:connection_limit</tt> (note that MySQL uses
-        # <tt>:charset</tt> while PostgreSQL uses <tt>:encoding</tt>).
+        # <tt>:charset</tt> while Redshift uses <tt>:encoding</tt>).
         #
         # Example:
         #   create_database config[:database], config
@@ -58,7 +50,7 @@ module ActiveRecord
           execute "CREATE DATABASE #{quote_table_name(name)}#{option_string}"
         end
 
-        # Drops a PostgreSQL database.
+        # Drops a Redshift database.
         #
         # Example:
         #   drop_database 'matt_development'
@@ -68,10 +60,22 @@ module ActiveRecord
 
         # Returns the list of all tables in the schema search path or a specified schema.
         def tables(name = nil)
+          if name
+            ActiveSupport::Deprecation.warn(<<-MSG.squish)
+              Passing arguments to #tables is deprecated without replacement.
+            MSG
+          end
+
+          select_values("SELECT tablename FROM pg_tables WHERE schemaname = ANY(current_schemas(false))", 'SCHEMA')
+        end
+
+        def data_sources # :nodoc
           select_values(<<-SQL, 'SCHEMA')
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = ANY (current_schemas(false))
+            SELECT c.relname
+            FROM pg_class c
+            LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('r', 'v','m') -- (r)elation/table, (v)iew, (m)aterialized view
+            AND n.nspname = ANY (current_schemas(false))
           SQL
         end
 
@@ -132,11 +136,7 @@ module ActiveRecord
 
         # Returns true if schema exists.
         def schema_exists?(name)
-          select_value(<<-SQL, 'SCHEMA').to_i > 0
-            SELECT COUNT(*)
-            FROM pg_namespace
-            WHERE nspname = '#{name}'
-          SQL
+          select_value("SELECT COUNT(*) FROM pg_namespace WHERE nspname = '#{name}'", 'SCHEMA').to_i > 0
         end
 
         def index_name_exists?(table_name, index_name, default)
@@ -174,10 +174,7 @@ module ActiveRecord
 
         # Returns the current database encoding format.
         def encoding
-          select_value(<<-end_sql, 'SCHEMA')
-            SELECT pg_encoding_to_char(pg_database.encoding) FROM pg_database
-            WHERE pg_database.datname LIKE '#{current_database}'
-          end_sql
+          select_value("SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname LIKE '#{current_database}'", 'SCHEMA')
         end
 
         def collation
@@ -281,7 +278,6 @@ module ActiveRecord
           clear_cache!
           quoted_table_name = quote_table_name(table_name)
           sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
-          sql_type << "[]" if options[:array]
           sql = "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quote_column_name(column_name)} TYPE #{sql_type}"
           sql << " USING #{options[:using]}" if options[:using]
           if options[:cast_as]
@@ -323,7 +319,6 @@ module ActiveRecord
         def rename_column(table_name, column_name, new_column_name) #:nodoc:
           clear_cache!
           execute "ALTER TABLE #{quote_table_name(table_name)} RENAME COLUMN #{quote_column_name(column_name)} TO #{quote_column_name(new_column_name)}"
-          rename_column_indexes(table_name, column_name, new_column_name)
         end
 
         def add_index(table_name, column_name, options = {}) #:nodoc:
@@ -336,7 +331,7 @@ module ActiveRecord
         end
 
         def foreign_keys(table_name)
-          fk_info = select_all <<-SQL.strip_heredoc
+          fk_info = select_all(<<-SQL.strip_heredoc, 'SCHEMA')
             SELECT t2.relname AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
             FROM pg_constraint c
             JOIN pg_class t1 ON c.conrelid = t1.oid
@@ -384,7 +379,7 @@ module ActiveRecord
 
             case limit
               when 1, 2; 'smallint'
-              when 3, 4; 'integer'
+              when nil, 3, 4; 'integer'
               when 5..8; 'bigint'
               else raise(ActiveRecordError, "No integer type has byte size #{limit}. Use a numeric with precision 0 instead.")
             end

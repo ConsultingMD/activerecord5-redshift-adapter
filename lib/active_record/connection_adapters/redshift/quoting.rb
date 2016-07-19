@@ -45,8 +45,7 @@ module ActiveRecord
           PGconn.quote_ident(name)
         end
 
-        # Quote date/time values for use in SQL input. Includes microseconds
-        # if the value is a Time responding to usec.
+        # Quote date/time values for use in SQL input.
         def quoted_date(value) #:nodoc:
           result = super
 
