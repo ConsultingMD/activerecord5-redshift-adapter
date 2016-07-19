@@ -7,6 +7,7 @@ require 'active_record/connection_adapters/redshift/oid'
 require 'active_record/connection_adapters/redshift/quoting'
 require 'active_record/connection_adapters/redshift/referential_integrity'
 require 'active_record/connection_adapters/redshift/schema_definitions'
+require 'active_record/connection_adapters/redshift/schema_dumper'
 require 'active_record/connection_adapters/redshift/schema_statements'
 require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
@@ -99,14 +100,6 @@ module ActiveRecord
 
       def schema_creation # :nodoc:
         Redshift::SchemaCreation.new self
-      end
-
-      # Adds +:array+ option to the default set provided by the
-      # AbstractAdapter
-      def prepare_column_options(column, types) # :nodoc:
-        spec = super
-        spec[:default] = "\"#{column.default_function}\"" if column.default_function
-        spec
       end
 
       # Returns +true+, since this connection adapter supports prepared statement
