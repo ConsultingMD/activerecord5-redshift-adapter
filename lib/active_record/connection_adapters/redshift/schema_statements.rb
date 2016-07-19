@@ -86,7 +86,7 @@ module ActiveRecord
           name = Utils.extract_schema_qualified_name(name.to_s)
           return false unless name.identifier
 
-          select_values(<<-SQL, 'SCHEMA').to_i > 0
+          select_value(<<-SQL, 'SCHEMA').to_i > 0
               SELECT COUNT(*)
               FROM pg_class c
               LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -126,7 +126,7 @@ module ActiveRecord
 
         # Returns true if schema exists.
         def schema_exists?(name)
-          select_values(<<-SQL, 'SCHEMA').to_i > 0
+          select_value(<<-SQL, 'SCHEMA').to_i > 0
             SELECT COUNT(*)
             FROM pg_namespace
             WHERE nspname = '#{name}'
@@ -158,17 +158,17 @@ module ActiveRecord
 
         # Returns the current database name.
         def current_database
-          select_values('select current_database()', 'SCHEMA')
+          select_value('select current_database()', 'SCHEMA')
         end
 
         # Returns the current schema name.
         def current_schema
-          select_values('SELECT current_schema', 'SCHEMA')
+          select_value('SELECT current_schema', 'SCHEMA')
         end
 
         # Returns the current database encoding format.
         def encoding
-          select_values(<<-end_sql, 'SCHEMA')
+          select_value(<<-end_sql, 'SCHEMA')
             SELECT pg_encoding_to_char(pg_database.encoding) FROM pg_database
             WHERE pg_database.datname LIKE '#{current_database}'
           end_sql
@@ -182,7 +182,7 @@ module ActiveRecord
 
         # Returns an array of schema names.
         def schema_names
-          select_values(<<-SQL, 'SCHEMA')
+          select_value(<<-SQL, 'SCHEMA')
             SELECT nspname
               FROM pg_namespace
              WHERE nspname !~ '^pg_.*'
@@ -215,7 +215,7 @@ module ActiveRecord
 
         # Returns the active schema search path.
         def schema_search_path
-          @schema_search_path ||= select_values('SHOW search_path', 'SCHEMA')
+          @schema_search_path ||= select_value('SHOW search_path', 'SCHEMA')
         end
 
         # Returns the sequence name for a table's primary key or some other specified key.
