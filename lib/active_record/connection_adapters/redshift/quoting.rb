@@ -44,9 +44,6 @@ module ActiveRecord
         # if the value is a Time responding to usec.
         def quoted_date(value) #:nodoc:
           result = super
-          if value.acts_like?(:time) && value.respond_to?(:usec)
-            result = "#{result}.#{sprintf("%06d", value.usec)}"
-          end
 
           if value.year <= 0
             bce_year = format("%04d", -value.year + 1)
