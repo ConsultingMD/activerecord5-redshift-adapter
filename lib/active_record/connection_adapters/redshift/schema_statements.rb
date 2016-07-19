@@ -75,10 +75,20 @@ module ActiveRecord
           SQL
         end
 
-        # Returns true if table exists.
-        # If the schema is not specified as part of +name+ then it will only find tables within
-        # the current schema search path (regardless of permissions to access tables in other schemas)
-        def table_exists?(name)
+         # Returns true if table exists.
+         # If the schema is not specified as part of +name+ then it will only find tables within
+         # the current schema search path (regardless of permissions to access tables in other schemas)
+         def table_exists?(name)
+          ActiveSupport::Deprecation.warn(<<-MSG.squish)
+            #table_exists? currently checks both tables and views.
+            This behavior is deprecated and will be changed with Rails 5.1 to only check tables.
+            Use #data_source_exists? instead.
+          MSG
+
+          data_source_exists?(name)
+        end
+
+        def data_source_exists?(name)
           name = Utils.extract_schema_qualified_name(name.to_s)
           return false unless name.identifier
 
