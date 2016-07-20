@@ -17,7 +17,7 @@ module ActiveRecord
         end
 
         def ==(other)
-          other.is_a?(PostgreSQLTypeMetadata) &&
+          other.is_a?(Redshift::TypeMetadata) &&
             attributes_for_hash == other.attributes_for_hash
         end
         alias eql? ==
