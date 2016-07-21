@@ -3,8 +3,6 @@ module ActiveRecord
     module Redshift
       module OID # :nodoc:
         class DateTime < Type::DateTime # :nodoc:
-          include Infinity
-
           def type_cast_for_database(value)
             if has_precision? && value.acts_like?(:time) && value.year <= 0
               bce_year = format("%04d", -value.year + 1)

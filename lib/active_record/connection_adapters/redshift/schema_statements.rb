@@ -5,26 +5,14 @@ module ActiveRecord
         private
 
         def visit_ColumnDefinition(o)
-          sql = super
-          if o.primary_key? && o.type != :primary_key
-            sql << " PRIMARY KEY "
-            add_column_options!(sql, column_options(o))
-          end
-          sql
+          o.sql_type = type_to_sql(o.type, o.limit, o.precision, o.scale)
+          super
         end
 
         def add_column_options!(sql, options)
           column = options.fetch(:column) { return super }
           if column.type == :uuid && options[:default] =~ /\(\)/
             sql << " DEFAULT #{options[:default]}"
-          else
-            super
-          end
-        end
-
-        def type_for_column(column)
-          if column.array
-            @conn.lookup_cast_type("#{column.sql_type}[]")
           else
             super
           end
@@ -39,10 +27,10 @@ module ActiveRecord
           create_database(name, options)
         end
 
-        # Create a new PostgreSQL database. Options include <tt>:owner</tt>, <tt>:template</tt>,
+        # Create a new Redshift database. Options include <tt>:owner</tt>, <tt>:template</tt>,
         # <tt>:encoding</tt> (defaults to utf8), <tt>:collation</tt>, <tt>:ctype</tt>,
         # <tt>:tablespace</tt>, and <tt>:connection_limit</tt> (note that MySQL uses
-        # <tt>:charset</tt> while PostgreSQL uses <tt>:encoding</tt>).
+        # <tt>:charset</tt> while Redshift uses <tt>:encoding</tt>).
         #
         # Example:
         #   create_database config[:database], config
@@ -62,7 +50,7 @@ module ActiveRecord
           execute "CREATE DATABASE #{quote_table_name(name)}#{option_string}"
         end
 
-        # Drops a PostgreSQL database.
+        # Drops a Redshift database.
         #
         # Example:
         #   drop_database 'matt_development'
@@ -72,21 +60,43 @@ module ActiveRecord
 
         # Returns the list of all tables in the schema search path or a specified schema.
         def tables(name = nil)
-          query(<<-SQL, 'SCHEMA').map { |row| row[0] }
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = ANY (current_schemas(false))
+          if name
+            ActiveSupport::Deprecation.warn(<<-MSG.squish)
+              Passing arguments to #tables is deprecated without replacement.
+            MSG
+          end
+
+          select_values("SELECT tablename FROM pg_tables WHERE schemaname = ANY(current_schemas(false))", 'SCHEMA')
+        end
+
+        def data_sources # :nodoc
+          select_values(<<-SQL, 'SCHEMA')
+            SELECT c.relname
+            FROM pg_class c
+            LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('r', 'v','m') -- (r)elation/table, (v)iew, (m)aterialized view
+            AND n.nspname = ANY (current_schemas(false))
           SQL
         end
 
-        # Returns true if table exists.
-        # If the schema is not specified as part of +name+ then it will only find tables within
-        # the current schema search path (regardless of permissions to access tables in other schemas)
-        def table_exists?(name)
+         # Returns true if table exists.
+         # If the schema is not specified as part of +name+ then it will only find tables within
+         # the current schema search path (regardless of permissions to access tables in other schemas)
+         def table_exists?(name)
+          ActiveSupport::Deprecation.warn(<<-MSG.squish)
+            #table_exists? currently checks both tables and views.
+            This behavior is deprecated and will be changed with Rails 5.1 to only check tables.
+            Use #data_source_exists? instead.
+          MSG
+
+          data_source_exists?(name)
+        end
+
+        def data_source_exists?(name)
           name = Utils.extract_schema_qualified_name(name.to_s)
           return false unless name.identifier
 
-          exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
+          select_value(<<-SQL, 'SCHEMA').to_i > 0
               SELECT COUNT(*)
               FROM pg_class c
               LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -96,17 +106,37 @@ module ActiveRecord
           SQL
         end
 
+        def views # :nodoc:
+          select_values(<<-SQL, 'SCHEMA')
+            SELECT c.relname
+            FROM pg_class c
+            LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('v','m') -- (v)iew, (m)aterialized view
+            AND n.nspname = ANY (current_schemas(false))
+          SQL
+        end
+
+        def view_exists?(view_name) # :nodoc:
+          name = Utils.extract_schema_qualified_name(view_name.to_s)
+          return false unless name.identifier
+
+          select_values(<<-SQL, 'SCHEMA').any?
+            SELECT c.relname
+            FROM pg_class c
+            LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('v','m') -- (v)iew, (m)aterialized view
+            AND c.relname = '#{name.identifier}'
+            AND n.nspname = #{name.schema ? "'#{name.schema}'" : 'ANY (current_schemas(false))'}
+          SQL
+        end
+
         def drop_table(table_name, options = {})
           execute "DROP TABLE #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
         end
 
         # Returns true if schema exists.
         def schema_exists?(name)
-          exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
-            SELECT COUNT(*)
-            FROM pg_namespace
-            WHERE nspname = '#{name}'
-          SQL
+          select_value("SELECT COUNT(*) FROM pg_namespace WHERE nspname = '#{name}'", 'SCHEMA').to_i > 0
         end
 
         def index_name_exists?(table_name, index_name, default)
@@ -120,35 +150,31 @@ module ActiveRecord
 
         # Returns the list of all column definitions for a table.
         def columns(table_name)
-          # Limit, precision, and scale are all handled by the superclass.
-          column_definitions(table_name).map do |column_name, type, default, notnull, oid, fmod|
-            oid = get_oid_type(oid.to_i, fmod.to_i, column_name, type)
-            default_value = extract_value_from_default(oid, default)
+          column_definitions(table_name.to_s).map do |column_name, type, default, notnull, oid, fmod|
+            default_value = extract_value_from_default(default)
+            type_metadata = fetch_type_metadata(column_name, type, oid, fmod)
             default_function = extract_default_function(default_value, default)
-            new_column(column_name, default_value, oid, type, notnull == 'f', default_function)
+            new_column(column_name, default_value, type_metadata, notnull == 'f', table_name, default_function)
           end
         end
 
-        def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil) # :nodoc:
-          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function)
+        def new_column(name, default, sql_type_metadata = nil, null = true, table_name = nil, default_function = nil) # :nodoc:
+          RedshiftColumn.new(name, default, sql_type_metadata, null, table_name, default_function)
         end
 
         # Returns the current database name.
         def current_database
-          query('select current_database()', 'SCHEMA')[0][0]
+          select_value('select current_database()', 'SCHEMA')
         end
 
         # Returns the current schema name.
         def current_schema
-          query('SELECT current_schema', 'SCHEMA')[0][0]
+          select_value('SELECT current_schema', 'SCHEMA')
         end
 
         # Returns the current database encoding format.
         def encoding
-          query(<<-end_sql, 'SCHEMA')[0][0]
-            SELECT pg_encoding_to_char(pg_database.encoding) FROM pg_database
-            WHERE pg_database.datname LIKE '#{current_database}'
-          end_sql
+          select_value("SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname LIKE '#{current_database}'", 'SCHEMA')
         end
 
         def collation
@@ -159,7 +185,7 @@ module ActiveRecord
 
         # Returns an array of schema names.
         def schema_names
-          query(<<-SQL, 'SCHEMA').flatten
+          select_value(<<-SQL, 'SCHEMA')
             SELECT nspname
               FROM pg_namespace
              WHERE nspname !~ '^pg_.*'
@@ -170,12 +196,12 @@ module ActiveRecord
 
         # Creates a schema for the given schema name.
         def create_schema schema_name
-          execute "CREATE SCHEMA #{schema_name}"
+          execute "CREATE SCHEMA #{quote_schema_name(schema_name)}"
         end
 
         # Drops the schema for the given schema name.
-        def drop_schema schema_name
-          execute "DROP SCHEMA #{schema_name} CASCADE"
+        def drop_schema(schema_name, options = {})
+          execute "DROP SCHEMA#{' IF EXISTS' if options[:if_exists]} #{quote_schema_name(schema_name)} CASCADE"
         end
 
         # Sets the schema search path to a string of comma-separated schema names.
@@ -192,7 +218,7 @@ module ActiveRecord
 
         # Returns the active schema search path.
         def schema_search_path
-          @schema_search_path ||= query('SHOW search_path', 'SCHEMA')[0][0]
+          @schema_search_path ||= select_value('SHOW search_path', 'SCHEMA')
         end
 
         # Returns the sequence name for a table's primary key or some other specified key.
@@ -205,10 +231,7 @@ module ActiveRecord
         end
 
         def serial_sequence(table, column)
-          result = exec_query(<<-eosql, 'SCHEMA')
-            SELECT pg_get_serial_sequence('#{table}', '#{column}')
-          eosql
-          result.rows.first.first
+          select_value("SELECT pg_get_serial_sequence('#{table}', '#{column}')", 'SCHEMA')
         end
 
         def set_pk_sequence!(table, value) #:nodoc:
@@ -222,8 +245,8 @@ module ActiveRecord
         end
 
         # Returns just a table's primary key
-        def primary_key(table)
-          pks = exec_query(<<-end_sql, 'SCHEMA').rows
+        def primary_keys(table)
+          pks = query(<<-end_sql, 'SCHEMA')
             SELECT DISTINCT attr.attname
             FROM pg_attribute attr
             INNER JOIN pg_depend dep ON attr.attrelid = dep.refobjid AND attr.attnum = dep.refobjsubid
@@ -231,8 +254,7 @@ module ActiveRecord
             WHERE cons.contype = 'p'
               AND dep.refobjid = '#{quote_table_name(table)}'::regclass
           end_sql
-          return nil unless pks.count == 1
-          pks[0][0]
+          pks.present? ? pks[0] : pks
         end
 
         # Renames a table.
@@ -256,7 +278,6 @@ module ActiveRecord
           clear_cache!
           quoted_table_name = quote_table_name(table_name)
           sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
-          sql_type << "[]" if options[:array]
           sql = "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quote_column_name(column_name)} TYPE #{sql_type}"
           sql << " USING #{options[:using]}" if options[:using]
           if options[:cast_as]
@@ -269,11 +290,12 @@ module ActiveRecord
         end
 
         # Changes the default value of a table column.
-        def change_column_default(table_name, column_name, default)
+        def change_column_default(table_name, column_name, default_or_changes)
           clear_cache!
           column = column_for(table_name, column_name)
           return unless column
 
+          default = extract_new_default_value(default_or_changes)
           alter_column_query = "ALTER TABLE #{quote_table_name(table_name)} ALTER COLUMN #{quote_column_name(column_name)} %s"
           if default.nil?
             # <tt>DEFAULT NULL</tt> results in the same behavior as <tt>DROP DEFAULT</tt>. However, PostgreSQL will
@@ -297,7 +319,6 @@ module ActiveRecord
         def rename_column(table_name, column_name, new_column_name) #:nodoc:
           clear_cache!
           execute "ALTER TABLE #{quote_table_name(table_name)} RENAME COLUMN #{quote_column_name(column_name)} TO #{quote_column_name(new_column_name)}"
-          rename_column_indexes(table_name, column_name, new_column_name)
         end
 
         def add_index(table_name, column_name, options = {}) #:nodoc:
@@ -310,7 +331,7 @@ module ActiveRecord
         end
 
         def foreign_keys(table_name)
-          fk_info = select_all <<-SQL.strip_heredoc
+          fk_info = select_all(<<-SQL.strip_heredoc, 'SCHEMA')
             SELECT t2.relname AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
             FROM pg_constraint c
             JOIN pg_class t1 ON c.conrelid = t1.oid
@@ -358,16 +379,9 @@ module ActiveRecord
 
             case limit
               when 1, 2; 'smallint'
-              when 3, 4; 'integer'
+              when nil, 3, 4; 'integer'
               when 5..8; 'bigint'
               else raise(ActiveRecordError, "No integer type has byte size #{limit}. Use a numeric with precision 0 instead.")
-            end
-          when 'datetime'
-            return super unless precision
-
-            case precision
-              when 0..6; "timestamp(#{precision})"
-              else raise(ActiveRecordError, "No timestamp type has precision of #{precision}. The allowed range of precision is from 0 to 6")
             end
           else
             super
@@ -386,6 +400,18 @@ module ActiveRecord
             }.reject(&:blank?).map.with_index { |column, i| "#{column} AS alias_#{i}" }
 
           [super, *order_columns].join(', ')
+        end
+
+        def fetch_type_metadata(column_name, sql_type, oid, fmod)
+          cast_type = get_oid_type(oid.to_i, fmod.to_i, column_name, sql_type)
+          simple_type = SqlTypeMetadata.new(
+            sql_type: sql_type,
+            type: cast_type.type,
+            limit: cast_type.limit,
+            precision: cast_type.precision,
+            scale: cast_type.scale,
+          )
+          TypeMetadata.new(simple_type, oid: oid, fmod: fmod)
         end
       end
     end

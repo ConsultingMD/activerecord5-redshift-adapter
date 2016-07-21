@@ -7,13 +7,11 @@ require 'active_record/connection_adapters/redshift/oid'
 require 'active_record/connection_adapters/redshift/quoting'
 require 'active_record/connection_adapters/redshift/referential_integrity'
 require 'active_record/connection_adapters/redshift/schema_definitions'
+require 'active_record/connection_adapters/redshift/schema_dumper'
 require 'active_record/connection_adapters/redshift/schema_statements'
+require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
 
-require 'arel/visitors/bind_visitor'
-
-# Make sure we're using pg high enough for PGResult#values
-gem 'pg', '> 0.15'
 require 'pg'
 
 require 'ipaddr'
@@ -100,14 +98,6 @@ module ActiveRecord
         Redshift::SchemaCreation.new self
       end
 
-      # Adds +:array+ option to the default set provided by the
-      # AbstractAdapter
-      def prepare_column_options(column, types) # :nodoc:
-        spec = super
-        spec[:default] = "\"#{column.default_function}\"" if column.default_function
-        spec
-      end
-
       # Returns +true+, since this connection adapter supports prepared statement
       # caching.
       def supports_statement_cache?
@@ -140,7 +130,8 @@ module ActiveRecord
 
       class StatementPool < ConnectionAdapters::StatementPool
         def initialize(connection, max)
-          super
+          super(max)
+          @connection = connection
           @counter = 0
           @cache   = Hash.new { |h,pid| h[pid] = {} }
         end
@@ -193,12 +184,12 @@ module ActiveRecord
 
       # Initializes and connects a PostgreSQL adapter.
       def initialize(connection, logger, connection_parameters, config)
-        super(connection, logger)
+        super(connection, logger, config)
 
         @visitor = Arel::Visitors::PostgreSQL.new self
         @prepared_statements = false
 
-        @connection_parameters, @config = connection_parameters, config
+        @connection_parameters = connection_parameters
 
         # @local_tz is initialized as nil to avoid warnings when connect tries to use it
         @local_tz = nil
@@ -206,7 +197,7 @@ module ActiveRecord
 
         connect
         @statements = StatementPool.new @connection,
-                                        self.class.type_cast_config_to_integer(config.fetch(:statement_limit) { 1000 })
+                                        self.class.type_cast_config_to_integer(config[:statement_limit])
 
         @type_map = Type::HashLookupTypeMap.new
         initialize_type_map(type_map)
@@ -385,11 +376,11 @@ module ActiveRecord
         end
 
         def initialize_type_map(m) # :nodoc:
-          register_class_with_limit m, 'int2', OID::Integer
-          register_class_with_limit m, 'int4', OID::Integer
-          register_class_with_limit m, 'int8', OID::Integer
+          register_class_with_limit m, 'int2', Type::Integer
+          register_class_with_limit m, 'int4', Type::Integer
+          register_class_with_limit m, 'int8', Type::Integer
           m.alias_type 'oid', 'int2'
-          m.register_type 'float4', OID::Float.new
+          m.register_type 'float4', Type::Float.new
           m.alias_type 'float8', 'float4'
           m.register_type 'text', Type::Text.new
           register_class_with_limit m, 'varchar', Type::String
@@ -398,8 +389,8 @@ module ActiveRecord
           m.alias_type 'bpchar', 'varchar'
           m.register_type 'bool', Type::Boolean.new
           m.alias_type 'timestamptz', 'timestamp'
-          m.register_type 'date', OID::Date.new
-          m.register_type 'time', OID::Time.new
+          m.register_type 'date', Type::Date.new
+          m.register_type 'time', Type::Time.new
 
           m.register_type 'timestamp' do |_, _, sql_type|
             precision = extract_precision(sql_type)
@@ -441,7 +432,7 @@ module ActiveRecord
         end
 
         # Extracts the value from a PostgreSQL column default definition.
-        def extract_value_from_default(oid, default) # :nodoc:
+        def extract_value_from_default(default) # :nodoc:
           case default
             # Quoted types
             when /\A[\(B]?'(.*)'::/m
@@ -497,9 +488,14 @@ module ActiveRecord
 
         FEATURE_NOT_SUPPORTED = "0A000" #:nodoc:
 
-        def execute_and_clear(sql, name, binds)
-          result = without_prepared_statement?(binds) ? exec_no_cache(sql, name, binds) :
-                                                        exec_cache(sql, name, binds)
+        def execute_and_clear(sql, name, binds, prepare: false)
+          if without_prepared_statement?(binds)
+            result = exec_no_cache(sql, name, [])
+          elsif !prepare
+            result = exec_no_cache(sql, name, binds)
+          else
+            result = exec_cache(sql, name, binds)
+          end
           ret = yield result
           result.clear
           ret
@@ -597,15 +593,6 @@ module ActiveRecord
           end
         end
 
-        # Returns the current ID of a table's sequence.
-        def last_insert_id(sequence_name) #:nodoc:
-          Integer(last_insert_id_value(sequence_name))
-        end
-
-        def last_insert_id_value(sequence_name)
-          last_insert_id_result(sequence_name).rows.first.first
-        end
-
         def last_insert_id_result(sequence_name) #:nodoc:
           exec_query("SELECT currval('#{sequence_name}')", 'SQL')
         end
@@ -629,7 +616,7 @@ module ActiveRecord
         #  - format_type includes the column size constraint, e.g. varchar(50)
         #  - ::regclass is a function that gives the id for a table name
         def column_definitions(table_name) # :nodoc:
-          exec_query(<<-end_sql, 'SCHEMA').rows
+          query(<<-end_sql, 'SCHEMA')
               SELECT a.attname, format_type(a.atttypid, a.atttypmod),
                      pg_get_expr(d.adbin, d.adrelid), a.attnotnull, a.atttypid, a.atttypmod
                 FROM pg_attribute a LEFT JOIN pg_attrdef d
@@ -641,12 +628,12 @@ module ActiveRecord
         end
 
         def extract_table_ref_from_insert_sql(sql) # :nodoc:
-          sql[/into\s+([^\(]*).*values\s*\(/im]
+          sql[/into\s("[A-Za-z0-9_."\[\]\s]+"|[A-Za-z0-9_."\[\]]+)\s*/im]
           $1.strip if $1
         end
 
-        def create_table_definition(name, temporary, options, as = nil) # :nodoc:
-          Redshift::TableDefinition.new native_database_types, name, temporary, options, as
+        def create_table_definition(*args) # :nodoc:
+          Redshift::TableDefinition.new(*args)
         end
     end
   end
