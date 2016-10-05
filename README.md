@@ -20,7 +20,7 @@ Usage
 For Rails 5, write following in Gemfile:
 ```
 gem 'activerecord5-redshift-adapter'
-
+```
 
 In database.yml
 ```
