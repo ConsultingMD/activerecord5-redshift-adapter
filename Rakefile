@@ -1,5 +1,5 @@
 require 'rake/testtask'
-require 'rubygems/package_task'
+require 'bundler/gem_tasks'
 
 require "#{__dir__}/test/config"
 require "#{__dir__}/test/support/config"
@@ -17,20 +17,4 @@ Rake::TestTask.new('test') do |t|
     + Dir.glob("test/cases/adapters/redshift/**/*_test.rb")).sort
   t.warning = true
   t.verbose = true
-end
-
-### Gem Handling
-
-spec = eval(File.read('activerecord5-redshift-adapter.gemspec'))
-
-desc 'Make gem'
-Gem::PackageTask.new(spec) do |t|
-  t.gem_spec = spec
-end
-
-desc 'Release to rubygems'
-task :release => :package do
-  require 'rake/gemcutter'
-  Rake::Gemcutter::Tasks.new(spec).define
-  Rake::Task['gem:push'].invoke
 end
