@@ -11,8 +11,6 @@ require 'active_record/connection_adapters/redshift/schema_dumper'
 require 'active_record/connection_adapters/redshift/schema_statements'
 require 'active_record/connection_adapters/redshift/type_metadata'
 require 'active_record/connection_adapters/redshift/database_statements'
-require 'active_record/tasks/redshift_database_tasks'
-
 
 require 'pg'
 
