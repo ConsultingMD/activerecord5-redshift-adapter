@@ -2,13 +2,13 @@ require 'cases/helper'
 
 module ActiveRecord::ConnectionAdapters
   class PostgreSQLAdapter < AbstractAdapter
-    class InactivePGconn
+    class InactivePGConnection
       def query(*args)
-        raise PGError
+        raise PG::Error
       end
 
       def status
-        PGconn::CONNECTION_BAD
+        PG::Connection::CONNECTION_BAD
       end
     end
 
@@ -30,7 +30,7 @@ module ActiveRecord::ConnectionAdapters
       end
 
       def test_dealloc_does_not_raise_on_inactive_connection
-        cache = StatementPool.new InactivePGconn.new, 10
+        cache = StatementPool.new InactivePGConnection.new, 10
         cache['foo'] = 'bar'
         assert_nothing_raised { cache.clear }
       end
