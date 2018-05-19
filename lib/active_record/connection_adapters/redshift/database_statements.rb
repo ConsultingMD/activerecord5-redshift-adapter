@@ -47,7 +47,7 @@ module ActiveRecord
         def select_value(arel, name = nil, binds = [])
           # In Rails 5.2, arel_from_relation replaced binds_from_relation,
           # so we see which method exists to get the variables
-          if respond_to?(:arel_from_relation, false)
+          if respond_to?(:arel_from_relation, true)
             arel = arel_from_relation(arel)
             sql, binds = to_sql(arel, binds)
           else
@@ -62,7 +62,7 @@ module ActiveRecord
         def select_values(arel, name = nil)
           # In Rails 5.2, arel_from_relation replaced binds_from_relation,
           # so we see which method exists to get the variables
-          if respond_to?(:arel_from_relation, false)
+          if respond_to?(:arel_from_relation, true)
             arel = arel_from_relation(arel)
             sql, binds = to_sql(arel, [])
           else
