@@ -45,16 +45,31 @@ module ActiveRecord
         end
 
         def select_value(arel, name = nil, binds = [])
-          arel, binds = binds_from_relation arel, binds
-          sql = to_sql(arel, binds)
+          # In Rails 5.2, arel_from_relation replaced binds_from_relation,
+          # so we see which method exists to get the variables
+          if respond_to?(:arel_from_relation, true)
+            arel = arel_from_relation(arel)
+            sql, binds = to_sql(arel, binds)
+          else
+            arel, binds = binds_from_relation arel, binds
+            sql = to_sql(arel, binds)
+          end
           execute_and_clear(sql, name, binds) do |result|
             result.getvalue(0, 0) if result.ntuples > 0 && result.nfields > 0
           end
         end
 
         def select_values(arel, name = nil)
-          arel, binds = binds_from_relation arel, []
-          sql = to_sql(arel, binds)
+          # In Rails 5.2, arel_from_relation replaced binds_from_relation,
+          # so we see which method exists to get the variables
+          if respond_to?(:arel_from_relation, true)
+            arel = arel_from_relation(arel)
+            sql, binds = to_sql(arel, [])
+          else
+            arel, binds = binds_from_relation arel, []
+            sql = to_sql(arel, binds)
+          end
+
           execute_and_clear(sql, name, binds) do |result|
             if result.nfields > 0
               result.column_values(0)
