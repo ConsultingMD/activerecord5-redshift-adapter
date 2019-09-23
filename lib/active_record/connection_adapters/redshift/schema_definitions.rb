@@ -46,7 +46,21 @@ module ActiveRecord
         end
       end
 
-      class ColumnDefinition < ActiveRecord::ConnectionAdapters::ColumnDefinition
+      class ColumnDefinition < Struct.new(:name, :type, :options, :sql_type)
+        def primary_key?
+          options[:primary_key]
+        end
+
+        [:limit, :precision, :scale, :default, :null, :collation, :comment, :encoding, :auto_increment].each do |option_name|
+          module_eval <<-CODE, __FILE__, __LINE__ + 1
+            def #{option_name}
+              options[:#{option_name}]
+            end
+            def #{option_name}=(value)
+              options[:#{option_name}] = value
+            end
+          CODE
+        end
       end
 
       class TableDefinition < ActiveRecord::ConnectionAdapters::TableDefinition
@@ -54,8 +68,14 @@ module ActiveRecord
 
         private
 
-        def create_column_definition(name, type)
-          Redshift::ColumnDefinition.new name, type
+        def create_column_definition(name, type, options)
+          Redshift::ColumnDefinition.new name, type, options
+        end
+
+        def new_column_definition(name, type, options) # :nodoc:
+          type = aliased_types(type.to_s, type)
+          column = create_column_definition(name, type, options)
+          column
         end
       end
 

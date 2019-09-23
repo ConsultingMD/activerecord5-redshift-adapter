@@ -9,6 +9,11 @@ module ActiveRecord
           spec[:default] = "\"#{column.default_function}\"" if column.default_function
           spec
         end
+
+        private
+          def default_primary_key?(column)
+            schema_type(column) == :bigint
+          end
       end
     end
   end

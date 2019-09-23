@@ -5,17 +5,40 @@ module ActiveRecord
         private
 
         def visit_ColumnDefinition(o)
-          o.sql_type = type_to_sql(o.type, o.limit, o.precision, o.scale)
           super
         end
 
         def add_column_options!(sql, options)
           column = options.fetch(:column) { return super }
+
           if column.type == :uuid && options[:default] =~ /\(\)/
             sql << " DEFAULT #{options[:default]}"
           else
-            super
+            sql << " DEFAULT #{quote_default_expression(options[:default], options[:column])}" if options_include_default?(options)
           end
+
+          # must explicitly check for :null to allow change_column to work on migrations
+          if options[:null] == false
+            sql << " NOT NULL"
+          end
+
+          if column.primary_key?
+            sql << " PRIMARY KEY"
+          end
+
+          if column.encoding
+            sql << " ENCODE #{column.encoding}"
+          end
+
+          if column.auto_increment
+            sql << " IDENTITY(1,1)"
+          end
+
+          sql
+        end
+
+        def type_for_column(column)
+          super
         end
       end
 
@@ -130,8 +153,24 @@ module ActiveRecord
           SQL
         end
 
+        def table_distkey(table_name) # :nodoc:
+          select_value("SELECT \"column\" FROM pg_table_def WHERE tablename = #{quote(table_name)} AND distkey = true")
+        end
+
+        def table_sortkey(table_name) # :nodoc:
+          columns = select_values("SELECT \"column\" FROM pg_table_def WHERE tablename = #{quote(table_name)} AND sortkey > 0 ORDER BY sortkey ASC")
+          columns.present? ? columns.join(', ') : nil
+        end
+
+        def create_table(table_name, comment: nil, **options)
+          options[:options] ||= ''
+          options[:options] += "DISTKEY(#{options.delete(:distkey)}) " if options.key?(:distkey)
+          options[:options] += "SORTKEY(#{options.delete(:sortkey)}) " if options.key?(:sortkey)
+          super
+        end
+
         def drop_table(table_name, options = {})
-          execute "DROP TABLE #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
+          execute "DROP TABLE#{' IF EXISTS' if options[:if_exists]} #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
         end
 
         # Returns true if schema exists.
@@ -150,16 +189,28 @@ module ActiveRecord
 
         # Returns the list of all column definitions for a table.
         def columns(table_name)
-          column_definitions(table_name.to_s).map do |column_name, type, default, notnull, oid, fmod|
+          column_definitions(table_name).map do |column_name, type, default, notnull, oid, fmod, encoding|
             default_value = extract_value_from_default(default)
             type_metadata = fetch_type_metadata(column_name, type, oid, fmod)
             default_function = extract_default_function(default_value, default)
-            new_column(column_name, default_value, type_metadata, notnull == 'f', table_name, default_function)
+            auto_increment = "true" if (default and default.include?("identity")) or (default_value and default_value.include?("identity"))
+            new_column(column_name, default_value, type_metadata, type, notnull == 'f', default_function, encoding, auto_increment)
           end
         end
 
-        def new_column(name, default, sql_type_metadata = nil, null = true, table_name = nil, default_function = nil) # :nodoc:
-          RedshiftColumn.new(name, default, sql_type_metadata, null, table_name, default_function)
+        def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil, encoding = nil, auto_increment = nil) # :nodoc:
+          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function, encoding, auto_increment)
+        end
+
+        def table_options(table_name) # :nodoc:
+          {}.tap do |options|
+            if (distkey = table_distkey(table_name)).present?
+              options[:distkey] = distkey
+            end
+            if (sortkey = table_sortkey(table_name)).present?
+              options[:sortkey] = sortkey
+            end
+          end
         end
 
         # Returns the current database name.
@@ -372,7 +423,7 @@ module ActiveRecord
         end
 
         # Maps logical Rails types to PostgreSQL-specific data types.
-        def type_to_sql(type, limit = nil, precision = nil, scale = nil)
+        def type_to_sql(type, limit: nil, precision: nil, scale: nil, **)
           case type.to_s
           when 'integer'
             return 'integer' unless limit
