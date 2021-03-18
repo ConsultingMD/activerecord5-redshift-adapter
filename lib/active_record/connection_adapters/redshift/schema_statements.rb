@@ -160,12 +160,12 @@ module ActiveRecord
             type_metadata = fetch_type_metadata(column_name, type, oid, fmod)
             default_function = extract_default_function(default_value, default)
 						identity = extract_identity_from_default default
-						new_column(column_name, default_value, type_metadata, notnull == 'f', table_name, default_function, identity)
+						new_column(column_name, default_value, type_metadata, notnull == 'f', default_function, identity)
           end
         end
 
-        def new_column(name, default, sql_type_metadata = nil, null = true, table_name = nil, default_function = nil, identity = nil) # :nodoc:
-          RedshiftColumn.new(name, default, sql_type_metadata, null, table_name, default_function, identity)
+        def new_column(name, default, sql_type_metadata = nil, null = true, default_function = nil, identity = nil) # :nodoc:
+          RedshiftColumn.new(name, default, sql_type_metadata, null, default_function, identity)
         end
 
 				def table_options(table_name) # :nodoc:

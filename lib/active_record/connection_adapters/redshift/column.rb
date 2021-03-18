@@ -4,8 +4,8 @@ module ActiveRecord
       delegate :oid, :fmod, to: :sql_type_metadata
       attr_accessor :identity
 
-      def initialize(name, default, sql_type_metadata, null = true, table_name= nil, default_function = nil, identity = nil)
-        super name, default, sql_type_metadata, null, table_name, default_function, nil
+      def initialize(name, default, sql_type_metadata = nil, null = true, default_function = nil, identity = nil)
+        super name, default, sql_type_metadata, null, default_function
         self.identity = identity
       end
 
