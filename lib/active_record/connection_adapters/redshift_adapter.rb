@@ -632,8 +632,8 @@ module ActiveRecord
           $1.strip if $1
         end
 
-        def create_table_definition(*args) # :nodoc:
-          Redshift::TableDefinition.new(*args)
+        def create_table_definition(*args, **options) # :nodoc:
+          Redshift::TableDefinition.new(self, *args, **options)
         end
     end
   end
