@@ -3,7 +3,7 @@ module ActiveRecord
     module Redshift
       module OID # :nodoc:
         class Json < Type::Value # :nodoc:
-          include Type::Helpers::Mutable
+          include ActiveModel::Type::Helpers::Mutable
 
           def type
             :json

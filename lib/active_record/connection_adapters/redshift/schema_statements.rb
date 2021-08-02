@@ -5,12 +5,17 @@ module ActiveRecord
         private
 
         def visit_ColumnDefinition(o)
-          o.sql_type = type_to_sql(o.type, o.limit, o.precision, o.scale)
+          o.sql_type = type_to_sql(o.type, o.options)
           super
         end
 
         def add_column_options!(sql, options)
           column = options.fetch(:column) { return super }
+
+          if options[:identity] && options[:identity].first && options[:identity].last
+            sql << " IDENTITY(#{options[:identity].first}, #{options[:identity].last})"
+          end
+
           if column.type == :uuid && options[:default] =~ /\(\)/
             sql << " DEFAULT #{options[:default]}"
           else
@@ -131,7 +136,7 @@ module ActiveRecord
         end
 
         def drop_table(table_name, options = {})
-          execute "DROP TABLE #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
+          execute "DROP TABLE #{' IF EXISTS' if options[:if_exists]} #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
         end
 
         # Returns true if schema exists.
@@ -154,13 +159,23 @@ module ActiveRecord
             default_value = extract_value_from_default(default)
             type_metadata = fetch_type_metadata(column_name, type, oid, fmod)
             default_function = extract_default_function(default_value, default)
-            new_column(column_name, default_value, type_metadata, notnull == 'f', table_name, default_function)
+						identity = extract_identity_from_default default
+						new_column(column_name, default_value, type_metadata, notnull == 'f', default_function, identity)
           end
         end
 
-        def new_column(name, default, sql_type_metadata = nil, null = true, table_name = nil, default_function = nil) # :nodoc:
-          RedshiftColumn.new(name, default, sql_type_metadata, null, table_name, default_function)
+        def new_column(name, default, sql_type_metadata = nil, null = true, default_function = nil, identity = nil) # :nodoc:
+          RedshiftColumn.new(name, default, sql_type_metadata, null, default_function, identity)
         end
+
+				def table_options(table_name) # :nodoc:
+					sortkey_query = "select ( case when p2.column is null then p1.column when p3.column is null then p1.column || ', ' || p2.column when p4.column is null then p1.column || ', ' || p2.column || ', ' || p3.column when p5.column is null then p1.column || ', ' || p2.column || ', ' || p3.column || ', ' || p4.column else p1.column || ', ' || p2.column || ', ' || p3.column || ', ' || p4.column || ', ' || p5.column end    ) from PG_TABLE_DEF p1  left outer join PG_TABLE_DEF p2 on p1.tablename = p2.tablename and p1.sortkey < p2.sortkey  left outer join PG_TABLE_DEF p3 on p1.tablename = p3.tablename and p2.sortkey < p3.sortkey  left outer join PG_TABLE_DEF p4 on p1.tablename = p4.tablename and p3.sortkey < p4.sortkey  left outer join PG_TABLE_DEF p5 on p1.tablename = p5.tablename and p4.sortkey < p5.sortkey where p1.sortkey = 1 and p1.tablename = '#{table_name}' order by p5.sortkey, p4.sortkey, p3.sortkey, p2.sortkey, p1.sortkey limit 1"
+					sortkeys = select_value(sortkey_query, "SCHEMA")
+
+					unless sortkeys.try(:to_s).try(:empty?)
+						{options: "COMPOUND SORTKEY (#{sortkeys})"} if sortkeys
+					end
+				end
 
         # Returns the current database name.
         def current_database
@@ -277,11 +292,11 @@ module ActiveRecord
         def change_column(table_name, column_name, type, options = {})
           clear_cache!
           quoted_table_name = quote_table_name(table_name)
-          sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
+          sql_type = type_to_sql(type, limit: options[:limit], precision: options[:precision], scale: options[:scale])
           sql = "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quote_column_name(column_name)} TYPE #{sql_type}"
           sql << " USING #{options[:using]}" if options[:using]
           if options[:cast_as]
-            sql << " USING CAST(#{quote_column_name(column_name)} AS #{type_to_sql(options[:cast_as], options[:limit], options[:precision], options[:scale])})"
+            sql << " USING CAST(#{quote_column_name(column_name)} AS #{type_to_sql(options[:cast_as], limit: options[:limit], precision: options[:precision], scale: options[:scale])})"
           end
           execute sql
 
@@ -372,7 +387,7 @@ module ActiveRecord
         end
 
         # Maps logical Rails types to PostgreSQL-specific data types.
-        def type_to_sql(type, limit = nil, precision = nil, scale = nil)
+        def type_to_sql(type, limit: nil, precision: nil, scale: nil, **)
           case type.to_s
           when 'integer'
             return 'integer' unless limit
@@ -401,6 +416,20 @@ module ActiveRecord
 
           [super, *order_columns].join(', ')
         end
+
+
+				def create_schema_dumper(options) # :nodoc:
+					Redshift::SchemaDumper.create(self, options)
+				end
+
+				def extract_identity_from_default(default)
+					return nil unless default.to_s.include? 'identity'
+
+					values = default.split("'")[1].split("'")[0].split(',')
+					seed = values.first.to_i
+					step = values.last.to_i
+					[seed, step]
+				end
 
         def fetch_type_metadata(column_name, sql_type, oid, fmod)
           cast_type = get_oid_type(oid.to_i, fmod.to_i, column_name, sql_type)
